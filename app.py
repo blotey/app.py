@@ -9,6 +9,7 @@ import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 st.set_page_config(page_title="Stock Forecast App", layout="wide")
 st.title("📈 Stock Price Forecasting Dashboard")
@@ -93,3 +94,21 @@ if uploaded_file:
         ax3.set_title("LSTM Prediction")
         ax3.legend()
         st.pyplot(fig3)
+
+        # Metrics for LSTM
+lstm_rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred))
+lstm_mae = mean_absolute_error(y_test_actual, y_pred)
+lstm_mape = np.mean(np.abs((y_test_actual - y_pred) / y_test_actual)) * 100
+
+st.write(f"**RMSE:** {lstm_rmse:.2f}")
+st.write(f"**MAE:** {lstm_mae:.2f}")
+st.write(f"**MAPE:** {lstm_mape:.2f}%")
+
+comparison_data = {
+    "Model": ["SARIMA", "Prophet", "LSTM"],
+    "RMSE": [sarima_rmse, prophet_rmse, lstm_rmse],
+    "MAE": [sarima_mae, prophet_mae, lstm_mae],
+    "MAPE (%)": [sarima_mape, prophet_mape, lstm_mape]
+}
+comparison_df = pd.DataFrame(comparison_data)
+st.write("### 📊 Model Comparison", comparison_df)
