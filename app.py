@@ -42,3 +42,36 @@ if uploaded_file:
     ax.set_ylabel('Close Price')
     ax.legend()
     st.pyplot(fig)
+
+    plt.subplot(2, 2, 2)
+df['50D_MA'] = df['Close'].rolling(window=50).mean()
+df['200D_MA'] = df['Close'].rolling(window=200).mean()
+plt.plot(df['Close'], label='Close')
+plt.plot(df['50D_MA'], label='50-Day MA')
+plt.plot(df['200D_MA'], label='200-Day MA')
+plt.title('Moving Averages')
+plt.legend()
+plt.grid(True)
+
+
+# Daily Returns Plot
+plt.subplot(2, 2, 3)
+daily_returns = df['Close'].pct_change() * 100
+daily_returns.plot()
+plt.title('Daily Returns')
+plt.ylabel('Percentage Change (%)')
+plt.grid(True)
+
+
+
+# Volume Plot
+plt.subplot(2, 2, 4)
+plt.bar(df.index, df['Volume'], color='skyblue')
+plt.title('Trading Volume')
+plt.ylabel('Volume')
+plt.grid(True)
+
+plt.tight_layout()
+plt.show()
+
+
