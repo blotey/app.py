@@ -1,1 +1,7 @@
 streamlit
+statsmodels
+pandas
+matplotlib
+scikit-learn
+prophet
+tensorflow
