@@ -8,7 +8,6 @@ from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
-from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 st.set_page_config(page_title="Stock Forecast App", layout="wide")
@@ -34,12 +33,24 @@ if uploaded_file:
     sarima_mean.index = forecast_dates
     sarima_conf.index = forecast_dates
 
+    # Metrics for SARIMA
+    sarima_actual = df['Close'].iloc[-forecast_days:]
+    sarima_predicted = sarima_result.predict(start=sarima_actual.index[0], end=sarima_actual.index[-1])
+    sarima_rmse = np.sqrt(mean_squared_error(sarima_actual, sarima_predicted))
+    sarima_mae = mean_absolute_error(sarima_actual, sarima_predicted)
+    sarima_mape = np.mean(np.abs((sarima_actual - sarima_predicted) / sarima_actual)) * 100
+
     # --- Prophet Forecast ---
     prophet_df = df[['Close']].reset_index().rename(columns={'Date': 'ds', 'Close': 'y'})
     prophet = Prophet()
     prophet.fit(prophet_df)
     future = prophet.make_future_dataframe(periods=forecast_days)
     forecast = prophet.predict(future)
+    prophet_pred = forecast.set_index('ds').loc[df.index[-forecast_days:]]['yhat']
+    prophet_actual = df['Close'].iloc[-forecast_days:]
+    prophet_rmse = np.sqrt(mean_squared_error(prophet_actual, prophet_pred))
+    prophet_mae = mean_absolute_error(prophet_actual, prophet_pred)
+    prophet_mape = np.mean(np.abs((prophet_actual - prophet_pred) / prophet_actual)) * 100
 
     # --- LSTM Forecast ---
     scaler = MinMaxScaler()
@@ -80,11 +91,17 @@ if uploaded_file:
         ax.fill_between(sarima_conf.index, sarima_conf.iloc[:, 0], sarima_conf.iloc[:, 1], color='pink', alpha=0.3)
         ax.legend()
         st.pyplot(fig)
+        st.write(f"**RMSE:** {sarima_rmse:.2f}")
+        st.write(f"**MAE:** {sarima_mae:.2f}")
+        st.write(f"**MAPE:** {sarima_mape:.2f}%")
 
     with tab2:
         st.subheader("Prophet Forecast")
         fig2 = prophet.plot(forecast)
         st.pyplot(fig2)
+        st.write(f"**RMSE:** {prophet_rmse:.2f}")
+        st.write(f"**MAE:** {prophet_mae:.2f}")
+        st.write(f"**MAPE:** {prophet_mape:.2f}%")
 
     with tab3:
         st.subheader("LSTM Forecast vs Actual")
@@ -95,20 +112,19 @@ if uploaded_file:
         ax3.legend()
         st.pyplot(fig3)
 
-        # Metrics for LSTM
-lstm_rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred))
-lstm_mae = mean_absolute_error(y_test_actual, y_pred)
-lstm_mape = np.mean(np.abs((y_test_actual - y_pred) / y_test_actual)) * 100
+        lstm_rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred))
+        lstm_mae = mean_absolute_error(y_test_actual, y_pred)
+        lstm_mape = np.mean(np.abs((y_test_actual - y_pred) / y_test_actual)) * 100
+        st.write(f"**RMSE:** {lstm_rmse:.2f}")
+        st.write(f"**MAE:** {lstm_mae:.2f}")
+        st.write(f"**MAPE:** {lstm_mape:.2f}%")
 
-st.write(f"**RMSE:** {lstm_rmse:.2f}")
-st.write(f"**MAE:** {lstm_mae:.2f}")
-st.write(f"**MAPE:** {lstm_mape:.2f}%")
-
-comparison_data = {
-    "Model": ["SARIMA", "Prophet", "LSTM"],
-    "RMSE": [sarima_rmse, prophet_rmse, lstm_rmse],
-    "MAE": [sarima_mae, prophet_mae, lstm_mae],
-    "MAPE (%)": [sarima_mape, prophet_mape, lstm_mape]
-}
-comparison_df = pd.DataFrame(comparison_data)
-st.write("### 📊 Model Comparison", comparison_df)
+    # --- Comparison Table ---
+    comparison_data = {
+        "Model": ["SARIMA", "Prophet", "LSTM"],
+        "RMSE": [sarima_rmse, prophet_rmse, lstm_rmse],
+        "MAE": [sarima_mae, prophet_mae, lstm_mae],
+        "MAPE (%)": [sarima_mape, prophet_mape, lstm_mape]
+    }
+    comparison_df = pd.DataFrame(comparison_data)
+    st.write("### 📊 Model Comparison", comparison_df)
