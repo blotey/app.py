@@ -1,110 +1,115 @@
+# app.py
+
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 from datetime import timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from prophet import Prophet
 from sklearn.preprocessing import MinMaxScaler
-import numpy as np
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 st.set_page_config(page_title="Stock Forecast App", layout="wide")
 st.title("📈 Stock Price Forecasting Dashboard")
 
-uploaded_file = st.file_uploader("Upload your stock CSV file", type=["csv"])
+def calculate_mape(y_true, y_pred):
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+# --- Sidebar Inputs ---
+st.sidebar.header("📁 Upload & Settings")
+uploaded_file = st.sidebar.file_uploader("Upload CSV", type=["csv"])
+forecast_days = st.sidebar.slider("Forecast Days", min_value=7, max_value=90, value=30)
+
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df['Date'] = pd.to_datetime(df['Date'])
     df.set_index('Date', inplace=True)
     df.sort_index(inplace=True)
-    st.write("### 📄 Uploaded Data", df.tail())
 
-    forecast_days = st.slider("Select Forecast Horizon (days)", 7, 60, 30)
+    st.write("### 📄 Uploaded Data")
+    st.line_chart(df['Close'])
 
-    # --- SARIMA Forecast ---
-    sarima_model = SARIMAX(df['Close'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
-    sarima_result = sarima_model.fit(disp=False)
-    sarima_forecast = sarima_result.get_forecast(steps=forecast_days)
-    sarima_mean = sarima_forecast.predicted_mean
-    sarima_conf = sarima_forecast.conf_int()
-    forecast_dates = pd.date_range(df.index[-1] + timedelta(days=1), periods=forecast_days, freq='D')
-    sarima_mean.index = forecast_dates
-    sarima_conf.index = forecast_dates
+    tab1, tab2, tab3 = st.tabs(["📉 SARIMA", "🔮 Prophet", "🧠 LSTM"])
 
-    # Metrics for SARIMA
-    sarima_actual = df['Close'].iloc[-forecast_days:]
-    sarima_predicted = sarima_result.predict(start=sarima_actual.index[0], end=sarima_actual.index[-1])
-    sarima_rmse = np.sqrt(mean_squared_error(sarima_actual, sarima_predicted))
-    sarima_mae = mean_absolute_error(sarima_actual, sarima_predicted)
-    sarima_mape = np.mean(np.abs((sarima_actual - sarima_predicted) / sarima_actual)) * 100
-
-    # --- Prophet Forecast ---
-    prophet_df = df[['Close']].reset_index().rename(columns={'Date': 'ds', 'Close': 'y'})
-    prophet = Prophet()
-    prophet.fit(prophet_df)
-    future = prophet.make_future_dataframe(periods=forecast_days)
-    forecast = prophet.predict(future)
-    prophet_pred = forecast.set_index('ds').loc[df.index[-forecast_days:]]['yhat']
-    prophet_actual = df['Close'].iloc[-forecast_days:]
-    prophet_rmse = np.sqrt(mean_squared_error(prophet_actual, prophet_pred))
-    prophet_mae = mean_absolute_error(prophet_actual, prophet_pred)
-    prophet_mape = np.mean(np.abs((prophet_actual - prophet_pred) / prophet_actual)) * 100
-
-    # --- LSTM Forecast ---
-    scaler = MinMaxScaler()
-    scaled_data = scaler.fit_transform(df[['Close']])
-
-    def create_sequences(data, seq_len):
-        X, y = [], []
-        for i in range(seq_len, len(data)):
-            X.append(data[i - seq_len:i])
-            y.append(data[i])
-        return np.array(X), np.array(y)
-
-    seq_len = 60
-    X, y = create_sequences(scaled_data, seq_len)
-    X_train, X_test = X[:-forecast_days], X[-forecast_days:]
-    y_train, y_test = y[:-forecast_days], y[-forecast_days:]
-
-    model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=(seq_len, 1)),
-        LSTM(50),
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(X_train, y_train, epochs=10, batch_size=16, verbose=0)
-    y_pred_scaled = model.predict(X_test)
-    y_pred = scaler.inverse_transform(y_pred_scaled)
-    y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
-    lstm_dates = df.index[-forecast_days:]
-
-    # --- Visualization Tabs ---
-    tab1, tab2, tab3 = st.tabs(["📉 SARIMA", "📆 Prophet", "🧠 LSTM"])
-
+    # --- SARIMA ---
     with tab1:
         st.subheader("SARIMA Forecast")
+        train = df['Close'][:-forecast_days]
+        model = SARIMAX(train, order=(1,1,1), seasonal_order=(1,1,1,12))
+        results = model.fit(disp=False)
+        pred = results.get_forecast(steps=forecast_days)
+        sarima_mean = pred.predicted_mean
+        sarima_conf = pred.conf_int()
+
         fig, ax = plt.subplots(figsize=(12, 5))
         ax.plot(df['Close'], label="Historical")
-        ax.plot(sarima_mean, label="Forecast", color='red')
+        ax.plot(sarima_mean.index, sarima_mean, label="Forecast", color='red')
         ax.fill_between(sarima_conf.index, sarima_conf.iloc[:, 0], sarima_conf.iloc[:, 1], color='pink', alpha=0.3)
         ax.legend()
         st.pyplot(fig)
+
+        test = df['Close'][-forecast_days:]
+        sarima_rmse = np.sqrt(mean_squared_error(test, sarima_mean))
+        sarima_mae = mean_absolute_error(test, sarima_mean)
+        sarima_mape = calculate_mape(test, sarima_mean)
         st.write(f"**RMSE:** {sarima_rmse:.2f}")
         st.write(f"**MAE:** {sarima_mae:.2f}")
         st.write(f"**MAPE:** {sarima_mape:.2f}%")
 
+    # --- Prophet ---
     with tab2:
         st.subheader("Prophet Forecast")
-        fig2 = prophet.plot(forecast)
+        prophet_df = df[['Close']].reset_index().rename(columns={"Date": "ds", "Close": "y"})
+        model = Prophet()
+        model.fit(prophet_df)
+        future = model.make_future_dataframe(periods=forecast_days)
+        forecast = model.predict(future)
+
+        fig2 = model.plot(forecast)
         st.pyplot(fig2)
+
+        y_true = prophet_df['y'][-forecast_days:].values
+        y_pred = forecast['yhat'][-forecast_days:].values[:len(y_true)]
+        prophet_rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        prophet_mae = mean_absolute_error(y_true, y_pred)
+        prophet_mape = calculate_mape(y_true, y_pred)
         st.write(f"**RMSE:** {prophet_rmse:.2f}")
         st.write(f"**MAE:** {prophet_mae:.2f}")
         st.write(f"**MAPE:** {prophet_mape:.2f}%")
 
+    # --- LSTM ---
     with tab3:
-        st.subheader("LSTM Forecast vs Actual")
+        st.subheader("LSTM Forecast")
+        data = df[['Close']].values
+        scaler = MinMaxScaler()
+        data_scaled = scaler.fit_transform(data)
+
+        look_back = forecast_days
+        X, y = [], []
+        for i in range(look_back, len(data_scaled)):
+            X.append(data_scaled[i-look_back:i])
+            y.append(data_scaled[i])
+        X, y = np.array(X), np.array(y)
+
+        split = int(0.8 * len(X))
+        X_train, y_train = X[:split], y[:split]
+        X_test, y_test = X[split:], y[split:]
+
+        model = Sequential([
+            LSTM(50, return_sequences=False, input_shape=(X.shape[1], X.shape[2])),
+            Dense(1)
+        ])
+        model.compile(optimizer='adam', loss='mse')
+        model.fit(X_train, y_train, epochs=10, batch_size=16, verbose=0)
+
+        y_pred = model.predict(X_test)
+        y_pred = scaler.inverse_transform(y_pred)
+        y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
+        lstm_dates = df.index[-len(y_test_actual):]
+
         fig3, ax3 = plt.subplots(figsize=(12, 5))
         ax3.plot(lstm_dates, y_test_actual, label="Actual")
         ax3.plot(lstm_dates, y_pred, label="Predicted", color='red')
@@ -114,7 +119,7 @@ if uploaded_file:
 
         lstm_rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred))
         lstm_mae = mean_absolute_error(y_test_actual, y_pred)
-        lstm_mape = np.mean(np.abs((y_test_actual - y_pred) / y_test_actual)) * 100
+        lstm_mape = calculate_mape(y_test_actual, y_pred)
         st.write(f"**RMSE:** {lstm_rmse:.2f}")
         st.write(f"**MAE:** {lstm_mae:.2f}")
         st.write(f"**MAPE:** {lstm_mape:.2f}%")
@@ -127,4 +132,8 @@ if uploaded_file:
         "MAPE (%)": [sarima_mape, prophet_mape, lstm_mape]
     }
     comparison_df = pd.DataFrame(comparison_data)
-    st.write("### 📊 Model Comparison", comparison_df)
+    st.write("### 📊 Model Comparison")
+    st.dataframe(comparison_df)
+
+else:
+    st.info("📤 Please upload a CSV file with 'Date' and 'Close' columns from the sidebar.")
